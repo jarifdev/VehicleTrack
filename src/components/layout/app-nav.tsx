@@ -16,6 +16,7 @@ export function AppNav() {
       <Link href="/" className="brand">
         VehicleTrack
       </Link>
+      <br></br>
       <nav className="nav-list" aria-label="Main navigation">
         {links.map((link) => (
           <Link key={link.href} href={link.href} className="nav-link">

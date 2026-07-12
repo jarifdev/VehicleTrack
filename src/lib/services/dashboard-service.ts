@@ -24,10 +24,32 @@ export async function getDashboardData(): Promise<DashboardData> {
       .eq("status", "out"),
   ]);
 
-  if (itemsResult.error) throw databaseError(itemsResult.error);
-  if (vehiclesResult.error) throw databaseError(vehiclesResult.error);
-  if (tripsResult.error) throw databaseError(tripsResult.error);
+if (itemsResult.error) {
+  console.error(
+    "ITEMS DATABASE ERROR:",
+    JSON.stringify(itemsResult.error, null, 2),
+  );
 
+  throw databaseError(itemsResult.error);
+}
+
+if (vehiclesResult.error) {
+  console.error(
+    "VEHICLES DATABASE ERROR:",
+    JSON.stringify(vehiclesResult.error, null, 2),
+  );
+
+  throw databaseError(vehiclesResult.error);
+}
+
+if (tripsResult.error) {
+  console.error(
+    "TRIPS DATABASE ERROR:",
+    JSON.stringify(tripsResult.error, null, 2),
+  );
+
+  throw databaseError(tripsResult.error);
+}
   const items = (itemsResult.data ?? []) as Item[];
   const lowStockItems = items
     .filter(
