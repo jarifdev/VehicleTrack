@@ -1,38 +1,182 @@
-# FleetStock — Vehicle Inventory Management
+# VehicleTrack — Vehicle Inventory Management
 
-A focused full-stack module for tracking stock loaded onto field vehicles and reconciling what comes back. The application records:
+VehicleTrack is a focused full-stack vehicle inventory module for field-service teams. It tracks items taken from a central store, loaded onto a vehicle, and later returned after a job.
 
-- Current store stock by unique barcode/SKU
-- Vehicles available for field work
-- Items and quantities taken when a trip starts
-- Returned and used quantities when the trip finishes
-- A complete stock movement audit trail
+For every trip, the system records:
 
-## Technology
+- Which vehicle left the store
+- Which stock items were taken
+- How much of each item was taken
+- How much came back
+- How much was used
+- How the store’s current stock changed
 
-- Next.js App Router and TypeScript
-- Supabase/Postgres
-- Next.js Route Handlers for the API
-- Postgres RPC functions for atomic stock operations
-- Zod for API validation
-- Vitest for focused unit tests
-- Plain responsive CSS to keep dependencies small
+The main reconciliation rule is:
 
-## Why stock operations are database functions
+```text
+quantity used = quantity taken - quantity returned
+```
 
-Starting and returning a trip each modify several records. These operations are implemented as Postgres functions so they run in one database transaction. If any line fails validation, every change rolls back.
+## Features
 
-The `FOR UPDATE` locks inside the functions also prevent two concurrent requests from both taking the same remaining stock.
+### Stock management
 
-## Product decisions
+- Create stock items
+- View all active stock items
+- View individual item details
+- Edit item information
+- Adjust current stock quantities
+- Archive items instead of permanently deleting them
+- Search items by SKU or name
+- Enforce unique SKUs, regardless of letter casing
+- Prevent negative stock quantities
 
-- A trip has one final reconciliation: `used = taken - returned`.
-- A return must include every trip item, including items where zero came back.
-- The same vehicle cannot have two open trips at once.
-- Items are archived rather than physically deleted, preserving historical trips.
-- Quantities support three decimal places.
-- Units are displayed independently; the UI never adds metres, pieces, and boxes into a misleading total.
-- Authentication and multiple stores are deliberately outside this take-home scope.
+Each stock item contains:
+
+- Unique barcode/SKU
+- Name
+- Unit, such as `piece`, `box`, `metre`, `litre`, or `roll`
+- Current quantity on hand
+- Reorder threshold
+- Active/archived status
+
+### Vehicle management
+
+- Create vehicles
+- List vehicles
+- Edit vehicle details
+- Activate or deactivate vehicles
+- Enforce unique vehicle registrations
+
+Each vehicle contains:
+
+- Registration
+- Name
+- Type, such as `Van`, `Truck`, or `Car`
+
+### Start a trip
+
+- Select an active vehicle
+- Add one or more stock items
+- Find items using their SKU
+- Enter the quantity taken for each item
+- Record optional trip notes
+- Automatically record the departure time
+- Reduce store stock when the trip starts
+
+The system rejects a trip when:
+
+- No items are included
+- An item does not exist
+- An item is archived
+- A quantity is zero or negative
+- The same item is added twice
+- The requested quantity is greater than available stock
+- The selected vehicle already has an active trip
+
+### Return and reconcile a trip
+
+- Open a trip currently marked as `out`
+- Record the returned quantity for every trip item
+- Calculate the used quantity automatically
+- Add returned quantities back to stock
+- Record the return time
+- Mark the trip as `returned`
+
+The system rejects a return when:
+
+- A returned quantity is negative
+- A returned quantity is greater than the quantity taken
+- A trip item is omitted
+- A trip item is submitted more than once
+- The trip has already been returned
+
+### Operational views
+
+- Dashboard summary
+- Current stock levels
+- Low-stock warnings
+- Vehicles
+- Trips currently out
+- Completed trip history
+- Detailed taken, returned, and used quantities
+- Inventory movement audit trail
+
+### Bonus features
+
+#### Reorder thresholds
+
+Each item can have a reorder threshold. An item is shown as low stock when:
+
+```text
+quantity on hand <= reorder threshold
+```
+
+This is a warning only, the application does not automatically place an order.
+
+#### Inventory movement audit trail
+
+Every important stock change is recorded, including:
+
+- Initial stock
+- Manual adjustments
+- Stock taken on a trip
+- Stock returned from a trip
+
+Each movement records:
+
+- Item
+- Related trip, when applicable
+- Movement type
+- Quantity added or removed
+- Balance after the movement
+- Date and time
+- Optional explanation
+
+#### Vehicle availability protection
+
+A vehicle cannot be assigned to two active trips at the same time.
+
+#### Historical data preservation
+
+Items are archived rather than physically deleted, so completed trip records continue to display correctly.
+
+---
+
+## Technology stack
+
+- **Next.js 16 App Router** — pages and server Route Handlers
+- **TypeScript** — type-safe application code
+- **React 19** — user interface
+- **Supabase/Postgres** — hosted database
+- **Postgres RPC functions** — atomic stock transactions
+- **Zod** — API input validation
+- **Vitest** — focused automated tests
+- **CSS** — responsive application styling
+
+Authentication is intentionally outside the scope of this version.
+
+---
+
+
+The application uses a Supabase server secret or legacy `service_role` key only inside server-side code.
+
+Starting and returning trips are implemented as Postgres functions so that all related changes happen in one transaction.
+
+For example, starting a trip performs the following as one operation:
+
+1. Validate the vehicle.
+2. Validate all item lines.
+3. Lock the selected inventory rows.
+4. Confirm sufficient stock is available.
+5. Create the trip.
+6. Create the trip item records.
+7. Reduce stock.
+8. Create inventory movement records.
+
+If any line fails, the complete operation is rolled back.
+
+---
 
 ## Project structure
 
@@ -40,304 +184,494 @@ The `FOR UPDATE` locks inside the functions also prevent two concurrent requests
 vehicle-inventory-system/
 ├── src/
 │   ├── app/
-│   │   ├── api/                 # HTTP Route Handlers
-│   │   ├── items/               # Stock pages
-│   │   ├── vehicles/            # Vehicle page
-│   │   ├── trips/               # Start, active, history, detail/return pages
-│   │   ├── movements/           # Audit trail page
-│   │   ├── layout.tsx
-│   │   ├── page.tsx             # Dashboard
-│   │   └── globals.css
-│   ├── components/
+│   │   ├── api/
+│   │   │   ├── dashboard/              # Dashboard API
+│   │   │   ├── items/                  # Item CRUD APIs
+│   │   │   ├── vehicles/               # Vehicle APIs
+│   │   │   ├── trips/                  # Trip start, list, detail and return APIs
+│   │   │   └── movements/              # Inventory movement API
 │   │   ├── items/
-│   │   ├── vehicles/
+│   │   │   ├── page.tsx                # Stock list
+│   │   │   ├── new/page.tsx            # Create item
+│   │   │   └── [id]/page.tsx           # View/edit item
+│   │   ├── vehicles/page.tsx            # Vehicle management
 │   │   ├── trips/
-│   │   ├── layout/
-│   │   └── ui/
+│   │   │   ├── new/page.tsx            # Start a trip
+│   │   │   ├── out/page.tsx            # Trips currently out
+│   │   │   ├── history/page.tsx        # Completed trips
+│   │   │   └── [id]/page.tsx           # Trip detail and return form
+│   │   ├── movements/page.tsx           # Stock audit trail
+│   │   ├── page.tsx                     # Dashboard
+│   │   ├── layout.tsx                   # Root layout
+│   │   ├── loading.tsx                  # Loading state
+│   │   ├── error.tsx                    # Error boundary
+│   │   └── globals.css                  # Global styling
+│   ├── components/
+│   │   ├── items/                       # Item form and table
+│   │   ├── vehicles/                    # Vehicle manager
+│   │   ├── trips/                       # Start, return, table and summary components
+│   │   ├── layout/                      # Navigation
+│   │   └── ui/                          # Shared UI components
 │   ├── lib/
-│   │   ├── services/            # Server-only database access
-│   │   ├── supabase/            # Server client
-│   │   ├── validation/          # Zod schemas
-│   │   ├── api-client.ts
-│   │   ├── api-response.ts
-│   │   ├── errors.ts
-│   │   └── format.ts
-│   └── types/
+│   │   ├── services/                    # Database queries and RPC calls
+│   │   ├── supabase/server.ts           # Server-only Supabase client
+│   │   ├── validation/                  # Zod request schemas
+│   │   ├── api-client.ts                # Browser fetch helper
+│   │   ├── api-response.ts              # Consistent API responses
+│   │   ├── errors.ts                    # Application error handling
+│   │   ├── format.ts                    # Display formatting helpers
+│   │   └── trip-calculations.ts         # Trip quantity calculations
+│   └── types/models.ts                  # Shared application types
 ├── supabase/
-│   ├── migrations/              # Schema, RPCs, security
-│   ├── tests/                   # SQL workflow smoke test
-│   ├── seed.sql
-│   └── config.toml
-├── tests/                       # Vitest unit tests
+│   ├── migrations/
+│   │   ├── create_schema.sql
+│   │   ├── create_functions.sql
+│   │   └── secure_database.sql
+│   └── seed.sql
+├── tests/
+│   ├── trip-calculations.test.ts
+│   └── validation.test.ts
 ├── .env.example
+├── .gitignore
+├── package.json
+├── package-lock.json
+├── tsconfig.json
+├── vitest.config.ts
 └── README.md
 ```
 
-## File responsibilities
+---
 
-### Database
+## Database model
 
-- `202607120001_create_schema.sql`: tables, constraints, indexes, generated used quantity, timestamps.
-- `202607120002_create_functions.sql`: transactional item creation/update, trip take-out, and final return.
-- `202607120003_secure_database.sql`: RLS and server-only permissions.
-- `seed.sql`: realistic items, vehicles, one completed trip, and one active trip.
-- `tests/trip_workflow.sql`: verifies stock 20 → 12 → 15 and used quantity 5.
+The database contains five main tables.
 
-### Server application
+### `items`
 
-- `src/lib/supabase/server.ts`: creates the secret-key client. It can only be imported on the server.
-- `src/lib/services/*`: all database queries and RPC calls.
-- `src/lib/validation/*`: validates untrusted API input.
-- `src/app/api/*/route.ts`: REST-style API endpoints.
+Stores current inventory information.
 
-### UI
+Important fields:
 
-- `item-form.tsx`: create/edit item and record adjustment reason.
-- `vehicle-manager.tsx`: create and edit vehicles.
-- `start-trip-form.tsx`: vehicle selection and dynamic typed/pasted SKU lines.
-- `return-trip-form.tsx`: final returned quantities with live used calculation.
-- `trip-table.tsx` and `trip-summary.tsx`: active/history/detail views.
+- `id`
+- `sku`
+- `name`
+- `unit`
+- `quantity_on_hand`
+- `reorder_threshold`
+- `is_active`
+- `created_at`
+- `updated_at`
 
-## Local setup with Supabase CLI
+### `vehicles`
 
-### 1. Requirements
+Stores the vehicles used by field crews.
 
-Install:
+Important fields:
 
-- Node.js 20.9 or newer
-- Docker Desktop
-- Git
+- `id`
+- `registration`
+- `name`
+- `type`
+- `is_active`
+- `created_at`
+- `updated_at`
 
-The Supabase CLI is installed as a development dependency, so a global install is not required.
+### `trips`
 
-### 2. Clone and install
+Stores one vehicle departure and its final return.
 
-```bash
-git clone <your-repository-url>
-cd vehicle-inventory-system
-npm install
+Important fields:
+
+- `id`
+- `trip_number`
+- `vehicle_id`
+- `status`
+- `taken_at`
+- `returned_at`
+- `notes`
+- `created_at`
+
+Trip status is either:
+
+```text
+out
+returned
 ```
 
-### 3. Start local Supabase
+### `trip_items`
 
-```bash
-npm run db:start
+Stores each item included in a trip.
+
+Important fields:
+
+- `trip_id`
+- `item_id`
+- `qty_taken`
+- `qty_returned`
+- `qty_used`
+
+`qty_used` is generated automatically by Postgres:
+
+```text
+qty_used = qty_taken - qty_returned
 ```
 
-This starts local Postgres, Supabase Studio, and the API.
+### `inventory_movements`
 
-### 4. Apply migrations and seed data
+Stores an audit record for each stock change.
 
-```bash
-npm run db:reset
-```
+Important fields:
 
-`supabase db reset` recreates the local database, applies every file in `supabase/migrations`, and runs `supabase/seed.sql`.
+- `item_id`
+- `trip_id`
+- `movement_type`
+- `quantity_delta`
+- `balance_after`
+- `note`
+- `created_at`
 
-### 5. Get local credentials
+---
+## Available pages
 
-```bash
-npx supabase status
-```
+| Route | Purpose |
+|---|---|
+| `/` | Dashboard |
+| `/items` | Current stock |
+| `/items/new` | Create item |
+| `/items/[id]` | View or edit item |
+| `/vehicles` | Vehicle management |
+| `/trips/new` | Start a trip |
+| `/trips/out` | Trips currently out |
+| `/trips/history` | Completed trip history |
+| `/trips/[id]` | Trip details and return form |
+| `/movements` | Inventory movement audit trail |
 
-Copy:
-
-- `API URL` into `SUPABASE_URL`
-- `service_role key` into `SUPABASE_SECRET_KEY`
-
-Create `.env.local`:
-
-```bash
-cp .env.example .env.local
-```
-
-Example local values:
-
-```env
-SUPABASE_URL=http://127.0.0.1:54321
-SUPABASE_SECRET_KEY=<service-role-key-from-supabase-status>
-```
-
-Never commit `.env.local`, and never prefix the secret key with `NEXT_PUBLIC_`.
-
-### 6. Run the application
-
-```bash
-npm run dev
-```
-
-Open `http://localhost:3000`.
-
-Supabase Studio is normally available at `http://127.0.0.1:54323`.
-
-## Hosted Supabase setup
-
-### Option A: Supabase CLI
-
-1. Create a project in Supabase.
-2. Authenticate and link this repository:
-
-```bash
-npx supabase login
-npx supabase link --project-ref <your-project-reference>
-```
-
-3. Push migrations:
-
-```bash
-npx supabase db push
-```
-
-4. Load sample data if desired:
-
-```bash
-npx supabase db reset --linked
-```
-
-Be careful: resetting a linked database is destructive. For a non-empty project, run `supabase/seed.sql` manually in the SQL Editor instead.
-
-5. Set production environment variables:
-
-```env
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_SECRET_KEY=<server-side-secret-or-legacy-service-role-key>
-```
-
-### Option B: SQL Editor
-
-Run the three migration files in filename order, then run `supabase/seed.sql`.
+---
 
 ## API endpoints
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/api/dashboard` | Dashboard counts and low-stock items |
-| `GET` | `/api/items` | List active items |
-| `POST` | `/api/items` | Create an item and initial movement |
-| `GET` | `/api/items/:id` | View an item |
-| `PATCH` | `/api/items/:id` | Edit metadata/quantity and record adjustment |
+| `GET` | `/api/dashboard` | Dashboard counts and low-stock data |
+| `GET` | `/api/items` | List items |
+| `POST` | `/api/items` | Create an item |
+| `GET` | `/api/items/:id` | View one item |
+| `PATCH` | `/api/items/:id` | Edit item details or stock |
 | `DELETE` | `/api/items/:id` | Archive an item |
 | `GET` | `/api/vehicles` | List vehicles |
 | `POST` | `/api/vehicles` | Create a vehicle |
-| `GET` | `/api/vehicles/:id` | View a vehicle |
-| `PATCH` | `/api/vehicles/:id` | Edit or deactivate a vehicle |
+| `GET` | `/api/vehicles/:id` | View one vehicle |
+| `PATCH` | `/api/vehicles/:id` | Edit a vehicle |
 | `GET` | `/api/trips?status=out` | List active trips |
-| `GET` | `/api/trips?status=returned` | List history |
-| `POST` | `/api/trips` | Start a trip atomically |
-| `GET` | `/api/trips/:id` | Trip detail |
-| `POST` | `/api/trips/:id/return` | Final return and reconciliation |
-| `GET` | `/api/movements` | Stock audit trail |
+| `GET` | `/api/trips?status=returned` | List completed trips |
+| `POST` | `/api/trips` | Start a trip |
+| `GET` | `/api/trips/:id` | View trip details |
+| `POST` | `/api/trips/:id/return` | Return and reconcile a trip |
+| `GET` | `/api/movements` | List inventory movements |
 
-## Example API requests
+---
 
-Create an item:
+# Running the project locally
 
-```json
-{
-  "sku": "CABLE-100",
-  "name": "Network Cable",
-  "unit": "metre",
-  "quantityOnHand": 80,
-  "reorderThreshold": 15
-}
-```
+The Next.js application runs on your computer, while the database remains hosted on Supabase.
 
-Start a trip:
+## 1. Prerequisites
 
-```json
-{
-  "vehicleId": "<vehicle-uuid>",
-  "notes": "Site installation",
-  "lines": [
-    { "itemId": "<item-uuid>", "quantity": 12 }
-  ]
-}
-```
+Install:
 
-Return a trip:
+- Node.js 20.9 or newer
+- npm
+- Git
+- A Supabase account
 
-```json
-{
-  "lines": [
-    { "tripItemId": "<trip-item-uuid>", "quantityReturned": 4 }
-  ]
-}
-```
-
-The example above means 12 were taken, 4 returned, and 8 used.
-
-## Validation and database protection
-
-The system rejects:
-
-- Duplicate SKUs, including different letter casing
-- Duplicate vehicle registrations
-- Negative stock or reorder thresholds
-- Empty trips
-- Duplicate items in the same trip
-- Taking zero or a negative quantity
-- Taking more than is available
-- Using an archived item on a new trip
-- Returning more than was taken
-- Omitting a trip line during final return
-- Returning the same trip twice
-- Starting another open trip for the same vehicle
-
-Client validation is for usability. The API and database constraints remain the source of truth.
-
-## Tests and quality checks
+Check Node and npm:
 
 ```bash
-npm run test
-npm run lint
-npm run build
+node --version
+npm --version
 ```
 
-Run the SQL transaction smoke test against local Postgres:
+---
+
+## 2. Clone the repository
 
 ```bash
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/trip_workflow.sql
+git clone <your-repository-url>
+cd vehicle-inventory-system
 ```
 
-## Manual acceptance test
+When using a downloaded ZIP instead:
 
-1. Create an item with quantity `20`.
-2. Attempt to create the same SKU in different casing; confirm rejection.
-3. Create a vehicle.
-4. Start a trip taking `8`; stock should become `12`.
-5. Attempt to take `13`; confirm rejection and stock remains `12`.
-6. Return `3` from the first trip.
-7. Stock should become `15`.
-8. Trip detail should show taken `8`, returned `3`, used `5`.
-9. Attempt to return the trip again; confirm rejection.
-10. Archive the item; historical trip information must remain visible.
+1. Extract the ZIP.
+2. Open the extracted project folder in VS Code.
+3. Open a terminal in the folder containing `package.json`.
 
-## Deployment
+Verify that you are in the correct directory:
 
-A straightforward option is:
+```bash
+npm run
+```
 
-1. Push the repository to GitHub.
-2. Import it into Vercel.
-3. Add `SUPABASE_URL` and `SUPABASE_SECRET_KEY` as server environment variables.
-4. Deploy.
-5. Verify the full take-out and return workflow against the hosted database.
+You should see scripts such as:
 
-## Suggested five-minute walkthrough
+```text
+dev
+build
+start
+lint
+test
+test:watch
+```
 
-1. `0:00–0:30`: Explain stock → vehicle → return → used.
-2. `0:30–1:15`: Create/edit an item and show duplicate validation.
-3. `1:15–2:20`: Start a trip and prove stock decreased.
-4. `2:20–3:20`: Return part of the stock and show used quantity.
-5. `3:20–4:10`: Show history and movement audit trail.
-6. `4:10–5:00`: Show the database RPC transaction and one test.
+---
 
-## Known limitations
+## 3. Install dependencies
 
-- No authentication or user roles.
-- One store location.
-- One final return event per trip rather than multiple partial returns.
-- No unit conversion.
-- No camera-based scanner; SKU is typed or pasted as requested.
-#   V e h i c l e T r a c k  
- 
+```bash
+npm install --no-audit --no-fund
+```
+
+---
+
+## 4. Create a hosted Supabase project
+
+1. Sign in to Supabase.
+2. Create a new project.
+3. Choose a project name.
+4. Create and safely store the database password.
+5. Choose a region.
+6. Wait until the project is ready.
+
+---
+
+## 5. Create the database schema
+
+In the Supabase Dashboard:
+
+1. Open **SQL Editor**.
+2. Select **New query**.
+3. Open the following project file:
+
+```text
+supabase/migrations/create_schema.sql
+```
+
+4. Copy the complete SQL file into the SQL Editor.
+5. Run it.
+
+This migration creates:
+
+- Database extensions
+- Enum types
+- `items`
+- `vehicles`
+- `trips`
+- `trip_items`
+- `inventory_movements`
+- Constraints
+- Indexes
+- Generated used quantities
+- Updated-at triggers
+
+Run each migration against the same Supabase project.
+
+---
+
+## 6. Create the transactional functions
+
+Open and run:
+
+```text
+supabase/migrations/create_functions.sql
+```
+
+This creates:
+
+- `create_inventory_item`
+- `update_inventory_item`
+- `take_out_trip`
+- `return_trip`
+
+These functions protect stock consistency by running related database operations atomically.
+
+---
+
+## 7. Apply database security
+
+Open and run:
+
+```text
+supabase/migrations/secure_database.sql
+```
+
+This migration:
+
+- Enables Row Level Security
+- Prevents direct browser access to the inventory tables
+- Grants the server-side Supabase role access
+- Restricts the inventory functions to the server role
+
+---
+
+## 8. Load seed data
+
+The repository includes:
+
+```text
+supabase/seed.sql
+```
+
+The seed creates:
+
+### Items
+
+| SKU | Name | Unit | Starting quantity | Reorder threshold |
+|---|---|---|---:|---:|
+| `CABLE-001` | Ethernet Cable | metre | 100 | 20 |
+| `BOLT-010` | Steel Bolt | piece | 250 | 50 |
+| `PIPE-020` | PVC Pipe | metre | 60 | 15 |
+| `GLOVE-001` | Safety Gloves | pair | 40 | 10 |
+| `TAPE-001` | Electrical Tape | roll | 25 | 5 |
+
+### Vehicles
+
+| Registration | Name | Type |
+|---|---|---|
+| `OM-1234` | Maintenance Van 1 | Van |
+| `OM-9012` | Field Truck 1 | Truck |
+
+### Trips
+
+The seed also creates:
+
+- One completed trip for the trip-history view
+- One active trip for the trips-out view
+- Inventory movement records produced by those trips
+
+To load it:
+
+1. Open **SQL Editor** in Supabase.
+2. Create a new query.
+3. Copy the complete contents of `supabase/seed.sql`.
+4. Run it once.
+
+> **Important:** `seed.sql` should be ran only once to prevent errors
+
+### Running without seed data
+
+Seed data is optional. You can also start with an empty database. To start with an empty database:
+
+1. Run the three migrations.
+2. Skip `seed.sql`.
+3. Start the application.
+4. Create items and vehicles from the UI.
+5. Start a trip after at least one active item and vehicle exist.
+
+---
+
+## 9. Verify the hosted database
+
+In Supabase, open **Table Editor**.
+
+Confirm these tables exist:
+
+```text
+items
+vehicles
+trips
+trip_items
+inventory_movements
+```
+
+If seed data was loaded, confirm that the item and vehicle rows are visible.
+
+The `vehicles` table should contain:
+
+```text
+id
+registration
+name
+type
+is_active
+created_at
+updated_at
+```
+
+The `items` table should contain:
+
+```text
+id
+sku
+name
+unit
+quantity_on_hand
+reorder_threshold
+is_active
+created_at
+updated_at
+```
+
+---
+
+## 10. Get the Supabase environment values
+
+In the Supabase Dashboard, open the project API settings.
+
+Copy:
+
+- Project URL
+- Server secret key, or the legacy `service_role` key
+
+Do not use the publishable or anonymous key for `SUPABASE_SECRET_KEY`.
+
+---
+
+## 11. Create `.env.local`
+
+At the project root, copy `.env.example`:
+
+### Windows PowerShell
+
+```powershell
+Copy-Item .env.example .env.local
+```
+
+### macOS/Linux
+
+```bash
+cp .env.example .env.local
+```
+
+Edit `.env.local`:
+
+```env
+SUPABASE_URL=https://your-project-reference.supabase.co
+SUPABASE_SECRET_KEY=your-server-secret-or-service-role-key
+```
+
+An older Supabase project may use this alternative variable:
+
+```env
+SUPABASE_SERVICE_ROLE_KEY=your-legacy-service-role-key
+```
+
+Use either `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY`, not both.
+
+---
+
+## 12. Start the development server
+
+```bash
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+The dashboard should load data from the hosted Supabase project.
+
+---
+
