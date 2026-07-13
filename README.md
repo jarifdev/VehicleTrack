@@ -646,16 +646,8 @@ Edit `.env.local`:
 
 ```env
 SUPABASE_URL=https://your-project-reference.supabase.co
-SUPABASE_SECRET_KEY=your-server-secret-or-service-role-key
+SUPABASE_SECRET_KEY=your-server-secret-key
 ```
-
-An older Supabase project may use this alternative variable:
-
-```env
-SUPABASE_SERVICE_ROLE_KEY=your-legacy-service-role-key
-```
-
-Use either `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY`, not both.
 
 ---
 
